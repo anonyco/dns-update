@@ -1,3 +1,14 @@
+/*
+ * Copyright Stalwart Labs LLC See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 #[cfg(test)]
 mod tests {
     use crate::providers::desec::DesecDnsRecordRepresentation;
@@ -278,7 +289,7 @@ mod tests {
             content: "test".to_string(),
         };
         let desec_record: DesecDnsRecordRepresentation = record.into();
-        assert_eq!(desec_record.content, "test");
+        assert_eq!(desec_record.content, "\"test\"");
         assert_eq!(desec_record.record_type, "TXT");
 
         let record = DnsRecord::MX {

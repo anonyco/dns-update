@@ -16,7 +16,7 @@ pub async fn main() -> Result<(), std::env::VarError> {
         .create(
             format!("_domainkey.{}", domain),
             DnsRecord::TXT {
-                content: "\"v=DKIM1; k=rsa; h=sha256; p=test\"".to_string(),
+                content: "v=DKIM1; k=rsa; h=sha256; p=test".to_string(),
             },
             3600,
             format!("{}", domain),

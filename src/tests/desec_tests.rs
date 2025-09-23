@@ -216,9 +216,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires desec API Token and domain configuration"]
     async fn integration_test() {
-        let token = ""; // <-- Fill in your deSEC API token here
-        let origin = ""; // <-- Fill in your domain (e.g., "example.com")
-        let domain = ""; // <-- Fill in your test subdomain (e.g., "test.example.com")
+        let token = std::env::var("DESEC_TOKEN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your deSEC API token here */);
+        let origin = std::env::var("DESEC_ORIGIN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your domain (e.g., "example.com") */);
+        let domain = std::env::var("DESEC_DOMAIN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your test subdomain (e.g., "test.example.com")*/);
 
         assert!(
             !token.is_empty(),
@@ -233,17 +233,17 @@ mod tests {
             "Please configure your test subdomain in the integration test"
         );
 
-        let provider = DesecProvider::new(token, Some(Duration::from_secs(30)));
+        let provider = DesecProvider::new(&token, Some(Duration::from_secs(30)));
 
         // check creation
         let creation_result = provider
             .create(
-                domain,
+                &domain,
                 DnsRecord::A {
                     content: "1.1.1.1".parse().unwrap(),
                 },
                 3600,
-                origin,
+                &origin,
             )
             .await;
 
@@ -252,19 +252,19 @@ mod tests {
         // check modification
         let update_result = provider
             .update(
-                domain,
+                &domain,
                 DnsRecord::A {
                     content: "2.2.2.2".parse().unwrap(),
                 },
                 3600,
-                origin,
+                &origin,
             )
             .await;
 
         assert!(update_result.is_ok());
 
         // check deletion
-        let deletion_result = provider.delete(domain, origin, DnsRecordType::A).await;
+        let deletion_result = provider.delete(&domain, &origin, DnsRecordType::A).await;
 
         assert!(deletion_result.is_ok());
     }

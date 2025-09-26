@@ -9,7 +9,7 @@
  * except according to those terms.
  */
 
-use crate::{strip_origin_from_name, DnsRecord, Error, IntoFqdn};
+use crate::{strip_origin_from_name, DnsRecord, Error, IntoFqdn, CachedAPIResponse,};
 use reqwest::Method;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
@@ -22,6 +22,7 @@ pub struct OvhProvider {
     consumer_key: String,
     pub(crate) endpoint: String,
     timeout: Duration,
+    cache: CachedAPIResponse,
 }
 
 #[derive(Serialize, Debug)]
@@ -139,6 +140,7 @@ impl OvhProvider {
             consumer_key: consumer_key.as_ref().to_string(),
             endpoint: endpoint.api_url().to_string(),
             timeout: timeout.unwrap_or(Duration::from_secs(30)),
+            cache: Default::default(),
         })
     }
 
@@ -217,37 +219,9 @@ impl OvhProvider {
         zone: &str,
         name: impl IntoFqdn<'_>,
         record_type: &str,
-    ) -> crate::Result<u64> {
-        let name = name.into_name();
-        let subdomain = strip_origin_from_name(&name, zone);
-        let subdomain = if subdomain == "@" { "" } else { &subdomain };
-
-        let url = format!(
-            "{}/domain/zone/{}/record?fieldType={}&subDomain={}",
-            self.endpoint, zone, record_type, subdomain
-        );
-
-        let response = self
-            .send_authenticated_request(Method::GET, &url, "")
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(Error::Api(format!(
-                "Failed to list records: HTTP {}",
-                response.status()
-            )));
-        }
-
-        let record_ids: Vec<u64> = serde_json::from_slice(
-            response
-                .bytes()
-                .await
-                .map_err(|e| Error::Api(format!("Failed to fetch record list: {}", e)))?
-                .as_ref(),
-        )
-        .map_err(|e| Error::Api(format!("Failed to parse record list: {}", e)))?;
-
-        record_ids.into_iter().next().ok_or(Error::NotFound)
+    ) -> crate::Result<i64> {
+        let name = name.into_name().into_owned();
+        self.cache.get_cached_or_update(&name, async || { impl_get_record_id(self, zone, &name, record_type).await }).await
     }
 
     pub(crate) async fn create(
@@ -410,4 +384,41 @@ impl OvhProvider {
 
         Ok(())
     }
+}
+
+async fn impl_get_record_id(
+    ovh: &OvhProvider,
+    zone: &str,
+    name: &str,
+    record_type: &str,
+) -> crate::Result<i64> {
+    let subdomain = strip_origin_from_name(name, zone);
+    let subdomain = if subdomain == "@" { "" } else { &subdomain };
+
+    let url = format!(
+        "{}/domain/zone/{}/record?fieldType={}&subDomain={}",
+        ovh.endpoint, zone, record_type, subdomain
+    );
+
+    let response = ovh
+        .send_authenticated_request(Method::GET, &url, "")
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(Error::Api(format!(
+            "Failed to list records: HTTP {}",
+            response.status()
+        )));
+    }
+
+    let record_ids: Vec<i64> = serde_json::from_slice(
+        response
+            .bytes()
+            .await
+            .map_err(|e| Error::Api(format!("Failed to fetch record list: {}", e)))?
+            .as_ref(),
+    )
+    .map_err(|e| Error::Api(format!("Failed to parse record list: {}", e)))?;
+
+    record_ids.into_iter().next().ok_or(Error::NotFound)
 }

@@ -17,11 +17,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{http::HttpClientBuilder, DnsRecord, Error, IntoFqdn};
+use crate::{http::HttpClientBuilder, DnsRecord, Error, IntoFqdn, CachedAPIResponse,};
 
 #[derive(Clone)]
 pub struct CloudflareProvider {
     client: HttpClientBuilder,
+    cache: CachedAPIResponse,
 }
 
 #[derive(Deserialize, Debug)]
@@ -101,31 +102,17 @@ impl CloudflareProvider {
         }
         .with_timeout(timeout);
 
-        Ok(Self { client })
+        Ok(Self { client, cache: Default::default() })
     }
 
-    async fn obtain_zone_id(&self, origin: impl IntoFqdn<'_>) -> crate::Result<String> {
-        let origin = origin.into_name();
-        self.client
-            .get(format!(
-                "https://api.cloudflare.com/client/v4/zones?{}",
-                Query::name(origin.as_ref()).serialize()
-            ))
-            .send_with_retry::<ApiResult<Vec<IdMap>>>(3)
-            .await
-            .and_then(|r| r.unwrap_response("list zones"))
-            .and_then(|result| {
-                result
-                    .into_iter()
-                    .find(|zone| zone.name == origin.as_ref())
-                    .map(|zone| zone.id)
-                    .ok_or_else(|| Error::Api(format!("Zone {} not found", origin.as_ref())))
-            })
+    async fn obtain_zone_id(&self, origin: impl IntoFqdn<'_>) -> crate::Result<i64> {
+        let origin = origin.into_name().into_owned();
+        self.cache.get_cached_or_update(&origin, async || { impl_obtain_zone_id(&self.client, &origin).await }).await
     }
 
     async fn obtain_record_id(
         &self,
-        zone_id: &str,
+        zone_id: &i64,
         name: impl IntoFqdn<'_>,
     ) -> crate::Result<String> {
         let name = name.into_name();
@@ -211,6 +198,25 @@ impl CloudflareProvider {
             .await
             .map(|_| ())
     }
+}
+
+async fn impl_obtain_zone_id(client: &HttpClientBuilder, origin: &str) -> crate::Result<i64> {
+    let origin = origin.into_name();
+    client
+        .get(format!(
+            "https://api.cloudflare.com/client/v4/zones?{}",
+            Query::name(origin.as_ref()).serialize()
+        ))
+        .send_with_retry::<ApiResult<Vec<IdMap>>>(3)
+        .await
+        .and_then(|r| r.unwrap_response("list zones"))
+        .and_then(|result| {
+            result
+                .into_iter()
+                .find(|zone| zone.name == origin.as_ref())
+                .map(|zone| zone.id.parse::<i64>().unwrap_or_default())
+                .ok_or_else(|| Error::Api(format!("Zone {} not found", origin.as_ref())))
+        })
 }
 
 impl<T> ApiResult<T> {

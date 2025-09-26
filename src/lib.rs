@@ -16,9 +16,14 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
     time::Duration,
+    cell::Cell,
+    ops::FnOnce,
+    future::Future,
 };
 
 use hickory_client::proto::rr::dnssec::{KeyPair, Private};
+
+use sha1::{Sha1, Digest};
 
 use providers::{
     cloudflare::CloudflareProvider,
@@ -124,6 +129,21 @@ pub enum DnsUpdater {
 pub trait IntoFqdn<'x> {
     fn into_fqdn(self) -> Cow<'x, str>;
     fn into_name(self) -> Cow<'x, str>;
+}
+
+// NOTE: this struct is for caching an integer key (hash) against an integer result (id)
+//  Uses of CachedAPIResponse should have the same behavior regardless of whether the
+//   value is cached or fetched fresh except less API requests to API servers.
+//  This is a valid, 100% safe usage of std::cell::Cell in Rust because:
+//   1. There is no change to external/consumer behavior, so mutability is inconsequential
+//   2. No pointers or heap objects are involved; only integers
+//   3. The cache is local to each object, which shouldn't be shared between threads (if
+//       theres any mulithreading at all, which is highly unlikely), so its thread safe
+type CachedResponseCell = [i64; 2];
+#[derive(Clone)]
+#[derive(Default)]
+pub struct CachedAPIResponse {
+    value: Cell<CachedResponseCell>,
 }
 
 impl DnsUpdater {
@@ -356,5 +376,29 @@ impl Display for Error {
 impl Display for DnsRecordType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl CachedAPIResponse {
+    pub async fn get_cached_or_update<F>(&self, key: &str, f: impl FnOnce() -> F) -> Result<i64>
+    where
+	    F: Future<Output = Result<i64>>, {
+        // Any hash algorithm will do here. I chose sha1 because it's already
+        //  in cargo.toml, so it won't bloat dns-update with unneccecary deps
+        let h_g = Sha1::digest(key.as_bytes());
+        let hash_bytes: [u8; 8] = [h_g[0],h_g[1],h_g[2],h_g[3],h_g[4],h_g[5],h_g[6],h_g[7]];
+        let unbound_hh = i64::from_ne_bytes( hash_bytes );
+        let new_hash: i64 = if unbound_hh == 0 { 1 } else { unbound_hh };
+        let got_value: CachedResponseCell = self.value.get();
+        let old_hash = got_value[0];
+        let old_value = got_value[1];
+
+        if new_hash == old_hash {
+            Ok(old_value)
+        } else {
+            let new_value = f().await;
+            if let Ok(hash) = new_value { self.value.replace( [new_hash, hash] ); };
+            new_value
+        }
     }
 }

@@ -14,12 +14,13 @@ use std::{
     time::Duration,
 };
 
-use crate::{http::HttpClientBuilder, strip_origin_from_name, DnsRecord, Error, IntoFqdn};
+use crate::{http::HttpClientBuilder, strip_origin_from_name, DnsRecord, Error, IntoFqdn, CachedAPIResponse};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct DigitalOceanProvider {
     client: HttpClientBuilder,
+	cache: CachedAPIResponse,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -85,7 +86,7 @@ impl DigitalOceanProvider {
         let client = HttpClientBuilder::default()
             .with_header("Authorization", format!("Bearer {}", auth_token.as_ref()))
             .with_timeout(timeout);
-        Self { client }
+        Self { client, cache: Default::default() }
     }
 
     pub(crate) async fn create(
@@ -158,23 +159,27 @@ impl DigitalOceanProvider {
     }
 
     async fn obtain_record_id(&self, name: &str, domain: &str) -> crate::Result<i64> {
-        let subdomain = strip_origin_from_name(name, domain);
-        self.client
-            .get(format!(
-                "https://api.digitalocean.com/v2/domains/{domain}/records?{}",
-                Query::name(name).serialize()
-            ))
-            .send_with_retry::<ListDomainRecord>(3)
-            .await
-            .and_then(|result| {
-                result
-                    .domain_records
-                    .into_iter()
-                    .find(|record| record.name == subdomain)
-                    .map(|record| record.id)
-                    .ok_or_else(|| Error::Api(format!("DNS Record {} not found", subdomain)))
-            })
+        self.cache.get_cached_or_update(name, async || { impl_obtain_record_id(&self.client, name, domain).await }).await
     }
+}
+
+async fn impl_obtain_record_id(client: &HttpClientBuilder, name: &str, domain: &str) -> crate::Result<i64> {
+    let subdomain = strip_origin_from_name(name, domain);
+    client
+        .get(format!(
+            "https://api.digitalocean.com/v2/domains/{domain}/records?{}",
+            Query::name(name).serialize()
+        ))
+        .send_with_retry::<ListDomainRecord>(3)
+        .await
+        .and_then(|result| {
+            result
+                .domain_records
+                .into_iter()
+                .find(|record| record.name == subdomain)
+                .map(|record| record.id)
+                .ok_or_else(|| Error::Api(format!("DNS Record {} not found", subdomain)))
+        })
 }
 
 impl<'a> Query<'a> {

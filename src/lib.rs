@@ -12,7 +12,10 @@ use core::fmt;
  */
 use std::{
     borrow::Cow,
+    cell::Cell,
     fmt::{Display, Formatter},
+    future::Future,
+    hash::{DefaultHasher, Hash, Hasher},
     net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
     time::Duration,
@@ -124,6 +127,32 @@ pub enum DnsUpdater {
 pub trait IntoFqdn<'x> {
     fn into_fqdn(self) -> Cow<'x, str>;
     fn into_name(self) -> Cow<'x, str>;
+}
+
+// NOTE: this struct is for caching an integer key (hash) against an integer result (id)
+//  Uses of ApiCacheManager should have the same behavior regardless of whether the
+//   value is cached or fetched fresh except less API requests to API servers.
+//  This is a valid, 100% safe usage of std::cell::Cell in Rust because:
+//   1. There is no change to external/consumer behavior, so mutability is inconsequential
+//   2. No pointers or heap objects are involved; only scalar integers
+//   3. The cache is local to each object, which shouldn't be shared between threads (if
+//       theres any mulithreading at all, which is highly unlikely), so its thread safe
+#[derive(Clone, Copy, Default)]
+struct ApiCacheKVPair<T: Copy + Sized + Default>(u64, T);
+
+#[derive(Clone, Default)]
+pub(crate) struct ApiCacheManager<T>
+where
+    T: Copy + Sized + Default,
+{
+    value: Cell<ApiCacheKVPair<T>>,
+}
+
+pub(crate) trait ApiCacheFetcher<'a, T>: Hash
+where
+    T: Copy + Sized + Default,
+{
+    fn fetch_api_response(&'a self) -> impl Future<Output = crate::Result<T>> + Send + Sync;
 }
 
 impl DnsUpdater {
@@ -356,5 +385,28 @@ impl Display for Error {
 impl Display for DnsRecordType {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl<T> ApiCacheManager<T>
+where
+    T: Copy + Sized + Default,
+{
+    pub(crate) async fn get_or_update<'a, F>(&self, fet: &'a F) -> crate::Result<T>
+    where
+        F: ApiCacheFetcher<'a, T>,
+    {
+        let ApiCacheKVPair(old_h, old_v) = self.value.take();
+        let mut hr = DefaultHasher::default();
+        fet.hash(&mut hr);
+        let hash = hr.finish();
+
+        let value = if old_h == hash {
+            old_v
+        } else {
+            fet.fetch_api_response().await?
+        };
+        self.value.replace(ApiCacheKVPair(hash, value));
+        Ok(value)
     }
 }

@@ -28,6 +28,7 @@ use providers::{
     cloudflare::CloudflareProvider,
     desec::DesecProvider,
     digitalocean::DigitalOceanProvider,
+    linode::LinodeProvider,
     ovh::{OvhEndpoint, OvhProvider},
     rfc2136::{DnsAddress, Rfc2136Provider},
 };
@@ -151,6 +152,7 @@ pub enum DnsUpdater {
     DigitalOcean(DigitalOceanProvider),
     Desec(DesecProvider),
     Ovh(OvhProvider),
+    Linode(LinodeProvider),
 }
 
 pub trait IntoFqdn<'x> {
@@ -264,6 +266,14 @@ impl DnsUpdater {
         )?))
     }
 
+    /// Create a new DNS updater using the Linode API.
+    pub fn new_linode(
+        auth_token: impl AsRef<str>,
+        timeout: Option<Duration>,
+    ) -> crate::Result<Self> {
+        Ok(DnsUpdater::Linode(LinodeProvider::new(auth_token, timeout)))
+    }
+
     /// Create a new DNS record.
     pub async fn create(
         &self,
@@ -278,6 +288,7 @@ impl DnsUpdater {
             DnsUpdater::DigitalOcean(provider) => provider.create(name, record, ttl, origin).await,
             DnsUpdater::Desec(provider) => provider.create(name, record, ttl, origin).await,
             DnsUpdater::Ovh(provider) => provider.create(name, record, ttl, origin).await,
+            DnsUpdater::Linode(provider) => provider.create(name, record, ttl, origin).await,
         }
     }
 
@@ -295,6 +306,7 @@ impl DnsUpdater {
             DnsUpdater::DigitalOcean(provider) => provider.update(name, record, ttl, origin).await,
             DnsUpdater::Desec(provider) => provider.update(name, record, ttl, origin).await,
             DnsUpdater::Ovh(provider) => provider.update(name, record, ttl, origin).await,
+            DnsUpdater::Linode(provider) => provider.update(name, record, ttl, origin).await,
         }
     }
 
@@ -311,6 +323,7 @@ impl DnsUpdater {
             DnsUpdater::DigitalOcean(provider) => provider.delete(name, origin).await,
             DnsUpdater::Desec(provider) => provider.delete(name, origin, record).await,
             DnsUpdater::Ovh(provider) => provider.delete(name, origin, record).await,
+            DnsUpdater::Linode(provider) => provider.delete(name, origin, record).await,
         }
     }
 }

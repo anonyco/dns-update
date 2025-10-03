@@ -19,14 +19,14 @@ pub async fn main() -> Result<(), std::env::VarError> {
                 content: "v=DKIM1; k=rsa; h=sha256; p=test".to_string(),
             },
             3600,
-            format!("{}", domain),
+            domain.to_string(),
         )
         .await;
 
     println!("client create result={:?}", client_result);
 
     let client_del_result = client
-        .delete("_domainkey", format!("{}", domain), DnsRecordType::TXT)
+        .delete("_domainkey", domain.to_string(), DnsRecordType::TXT)
         .await;
 
     println!("client del result={:?}", client_del_result);

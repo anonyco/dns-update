@@ -216,9 +216,15 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires desec API Token and domain configuration"]
     async fn integration_test() {
-        let token = std::env::var("DESEC_TOKEN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your deSEC API token here */);
-        let origin = std::env::var("DESEC_ORIGIN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your domain (e.g., "example.com") */);
-        let domain = std::env::var("DESEC_DOMAIN").unwrap_or_else(|_v| "".to_string() /* <-- Fill in your test subdomain (e.g., "test.example.com")*/);
+        let token = std::env::var("DESEC_TOKEN").unwrap_or_else(
+            |_v| "".to_string(), /* <-- Fill in your deSEC API token here */
+        );
+        let origin = std::env::var("DESEC_ORIGIN").unwrap_or_else(
+            |_v| "".to_string(), /* <-- Fill in your domain (e.g., "example.com") */
+        );
+        let domain = std::env::var("DESEC_DOMAIN").unwrap_or_else(
+            |_v| "".to_string(), /* <-- Fill in your test subdomain (e.g., "test.example.com")*/
+        );
 
         assert!(
             !token.is_empty(),

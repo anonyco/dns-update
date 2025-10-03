@@ -269,7 +269,7 @@ impl OvhProvider {
     #[cfg(test)]
     pub(crate) fn with_endpoint(self, endpoint: impl AsRef<str>) -> Self {
         let data = self.data.with_endpoint(endpoint);
-        Self { data, ..self }
+        Self { data }
     }
 
     pub(crate) async fn create(

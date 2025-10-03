@@ -33,6 +33,7 @@ Tools:
   test           does cargo test
   fmt            does cargo fmt
   clippy         does cargo clippy
+  bot            clippy warnings -> errors
 
 E.x. to test and fmt: ./tool test fmt
 
@@ -63,6 +64,12 @@ tool() {
     clippy)
       DEF=""
       "$1" cargo clippy --all-targets
+      ;;
+    bot)
+      DEF=""
+      RUSTFLAGS="$RUSTFLAGS -A dead_code" "$1" cargo test
+      "$1" cargo fmt
+      "$1" cargo clippy --all-targets -- -D warnings -A dead_code
       ;;
     -*)
       if [ "$2" = -h ] || [ "$2" = --help ]
